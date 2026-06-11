@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getGroupContext, getPredictionPageData } from "@/lib/data";
+import { isGroupStageOpenForUser } from "@/lib/prediction-locks";
 import { flagForTeam } from "@/lib/team-flags";
 
 type MatchRow = {
@@ -63,7 +64,7 @@ export default async function PredictionsPage({
   params: Promise<{ groupId: string }>;
 }) {
   const { groupId } = await params;
-  const { group } = await getGroupContext(groupId);
+  const { supabase, group, user } = await getGroupContext(groupId);
   const settings = settingsFor(group) ?? {
     group_stage_prediction_mode: "table",
     knockout_prediction_mode: "winner_bracket",
@@ -80,8 +81,9 @@ export default async function PredictionsPage({
   const allMatches = matches as MatchRow[];
   const groupMatches = allMatches.filter((match) => match.stage_type === "group");
   const knockoutMatches = allMatches.filter((match) => match.stage_type === "knockout");
-  const firstGroupKickoff = groupMatches.find((match) => match.kickoff_time)?.kickoff_time ?? null;
-  const groupLocked = isLockedAt(firstGroupKickoff);
+  const { open: groupStageOpen, firstKickoff: firstGroupKickoff, extension: groupStageExtension } =
+    await isGroupStageOpenForUser(supabase, groupId, user.id);
+  const groupLocked = !groupStageOpen;
   const knockoutLocked = isLockedAt(settings.knockout_locked_at);
   const tablePredictionByGroup = new Map(
     (tablePredictions ?? []).map((prediction) => [prediction.group_name, prediction])
@@ -139,14 +141,22 @@ export default async function PredictionsPage({
           <div className="flex items-center justify-between gap-3">
             <CardTitle>Group stage</CardTitle>
             <Badge variant={groupLocked ? "secondary" : "warm"}>
-              {groupLocked ? "Locked" : "Open until first kickoff"}
+              {groupLocked ? "Locked" : groupStageExtension ? "Extended" : "Open until first kickoff"}
             </Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {firstGroupKickoff ? (
             <p className="text-sm text-muted-foreground">
-              Locks <ClientDateTime value={firstGroupKickoff} />.
+              {groupStageExtension ? (
+                <>
+                  Extended until <ClientDateTime value={groupStageExtension.expires_at} />.
+                </>
+              ) : (
+                <>
+                  Locks <ClientDateTime value={firstGroupKickoff} />.
+                </>
+              )}
             </p>
           ) : null}
           {settings.group_stage_prediction_mode === "table" ? (

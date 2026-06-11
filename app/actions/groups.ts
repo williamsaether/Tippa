@@ -38,6 +38,18 @@ const createGroupSchema = z.object({
   knockoutThirdPlacePoints: z.coerce.number().int().min(0).optional()
 });
 
+const predictionExtensionSchema = z.object({
+  groupId: z.string().uuid(),
+  userId: z.string().uuid().optional(),
+  expiresAtIso: z.string().datetime(),
+  reason: z.string().trim().max(160).optional()
+});
+
+const revokePredictionExtensionSchema = z.object({
+  groupId: z.string().uuid(),
+  overrideId: z.string().uuid()
+});
+
 type ScoreSettingInput = Partial<z.infer<typeof createGroupSchema>> & {
   scoringPreset: ScoringPreset;
 };
@@ -332,6 +344,75 @@ export async function updateMemberRole(formData: FormData) {
   if (error) throw error;
   revalidatePath(`/groups/${groupId}`);
   revalidatePath(`/groups/${groupId}/settings`);
+}
+
+export async function grantGroupStagePredictionExtension(formData: FormData) {
+  const parsed = predictionExtensionSchema.parse({
+    groupId: formData.get("groupId"),
+    userId: formData.get("userId") || undefined,
+    expiresAtIso: formData.get("expiresAtIso"),
+    reason: formData.get("reason") || undefined
+  });
+
+  const expiresAt = new Date(parsed.expiresAtIso);
+  if (expiresAt <= new Date()) throw new Error("Deadline must be in the future.");
+
+  const actingUser = await requireGroupAdmin(parsed.groupId);
+  const service = createServiceClient();
+
+  if (parsed.userId) {
+    const { data: member, error: memberError } = await service
+      .from("group_members")
+      .select("id")
+      .eq("group_id", parsed.groupId)
+      .eq("user_id", parsed.userId)
+      .maybeSingle();
+
+    if (memberError) throw memberError;
+    if (!member) throw new Error("User is not a member of this group.");
+  }
+
+  let existingQuery = service
+    .from("prediction_lock_overrides")
+    .delete()
+    .eq("group_id", parsed.groupId)
+    .eq("prediction_phase", "group");
+
+  existingQuery = parsed.userId ? existingQuery.eq("user_id", parsed.userId) : existingQuery.is("user_id", null);
+  const { error: deleteError } = await existingQuery;
+  if (deleteError) throw deleteError;
+
+  const { error } = await service.from("prediction_lock_overrides").insert({
+    group_id: parsed.groupId,
+    user_id: parsed.userId ?? null,
+    prediction_phase: "group",
+    expires_at: expiresAt.toISOString(),
+    reason: parsed.reason || null,
+    created_by: actingUser.id
+  });
+
+  if (error) throw error;
+  revalidatePath(`/groups/${parsed.groupId}/settings`);
+  revalidatePath(`/groups/${parsed.groupId}/predictions`);
+}
+
+export async function revokeGroupStagePredictionExtension(formData: FormData) {
+  const parsed = revokePredictionExtensionSchema.parse({
+    groupId: formData.get("groupId"),
+    overrideId: formData.get("overrideId")
+  });
+
+  await requireGroupAdmin(parsed.groupId);
+  const service = createServiceClient();
+  const { error } = await service
+    .from("prediction_lock_overrides")
+    .delete()
+    .eq("id", parsed.overrideId)
+    .eq("group_id", parsed.groupId);
+
+  if (error) throw error;
+  revalidatePath(`/groups/${parsed.groupId}/settings`);
+  revalidatePath(`/groups/${parsed.groupId}/predictions`);
 }
 
 export async function removeGroupMember(formData: FormData) {

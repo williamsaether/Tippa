@@ -165,6 +165,22 @@ export const getAdminPageData = cache(async function getAdminPageData(groupId: s
   };
 });
 
+export const getGroupPredictionExtensions = cache(async function getGroupPredictionExtensions(groupId: string) {
+  const { isAdmin } = await getGroupContext(groupId);
+  if (!isAdmin) return [];
+
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("prediction_lock_overrides")
+    .select("id,group_id,user_id,expires_at,reason")
+    .eq("group_id", groupId)
+    .eq("prediction_phase", "group")
+    .order("expires_at", { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+});
+
 export const getDashboardData = cache(async function getDashboardData() {
   const { supabase, user } = await requireUser();
   const { data: memberships, error } = await supabase

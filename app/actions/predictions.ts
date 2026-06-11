@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAppUser } from "@/lib/dev-auth";
+import { assertGroupStageOpenForUser, isGroupStageOpenForUser } from "@/lib/prediction-locks";
 import {
   calculateExactScoreResult,
   calculateOutcomePoints,
@@ -69,33 +70,6 @@ async function getGroupTournament(supabase: SupabaseClient, groupId: string) {
   if (error) throw error;
   const tournament = Array.isArray(group.tournaments) ? group.tournaments[0] : group.tournaments;
   return { tournamentId: group.tournament_id as string, tournament };
-}
-
-async function assertGroupStageUnlocked(supabase: SupabaseClient, groupId: string) {
-  const { tournamentId } = await getGroupTournament(supabase, groupId);
-
-  const { data: firstMatch, error: matchError } = await supabase
-    .from("matches")
-    .select("kickoff_time")
-    .eq("tournament_id", tournamentId)
-    .eq("stage_type", "group")
-    .order("kickoff_time", { ascending: true, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (matchError) throw matchError;
-  if (firstMatch?.kickoff_time && new Date(firstMatch.kickoff_time) <= new Date()) {
-    throw new Error("Group-stage predictions are locked.");
-  }
-}
-
-async function isGroupStageUnlocked(supabase: SupabaseClient, groupId: string) {
-  try {
-    await assertGroupStageUnlocked(supabase, groupId);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function getThirdPlaceAdvancerLimit(supabase: SupabaseClient, groupId: string) {
@@ -176,13 +150,14 @@ export async function saveGroupTablePrediction(formData: FormData) {
   const { supabase, user } = await requireUser();
   await assertGroupMember(supabase, parsed.groupId, user.id);
   const { tournamentId } = await getGroupTournament(supabase, parsed.groupId);
-  await assertGroupStageUnlocked(supabase, parsed.groupId);
+  await assertGroupStageOpenForUser(supabase, parsed.groupId, user.id);
   await assertTablePredictionShape(supabase, tournamentId, parsed.groupName, parsed.rankedTeamIds);
 
   const thirdPlaceAdvancerLimit = await getThirdPlaceAdvancerLimit(supabase, parsed.groupId);
+  const service = createServiceClient();
 
   if (parsed.thirdPlaceAdvances) {
-    const { count, error: countError } = await supabase
+    const { count, error: countError } = await service
       .from("group_table_predictions")
       .select("id", { count: "exact", head: true })
       .eq("group_id", parsed.groupId)
@@ -196,7 +171,7 @@ export async function saveGroupTablePrediction(formData: FormData) {
     }
   }
 
-  const { error } = await supabase.from("group_table_predictions").upsert(
+  const { error } = await service.from("group_table_predictions").upsert(
     {
       group_id: parsed.groupId,
       user_id: user.id,
@@ -226,7 +201,7 @@ export async function saveMatchPrediction(formData: FormData) {
   if (parsed.predictionPhase === "knockout") {
     await assertKnockoutUnlocked(supabase, parsed.groupId);
   } else {
-    await assertGroupStageUnlocked(supabase, parsed.groupId);
+    await assertGroupStageOpenForUser(supabase, parsed.groupId, user.id);
   }
 
   const { data: match, error: matchError } = await supabase
@@ -255,7 +230,8 @@ export async function saveMatchPrediction(formData: FormData) {
       )
     : 0;
 
-  const { error } = await supabase.from("match_predictions").upsert(
+  const service = createServiceClient();
+  const { error } = await service.from("match_predictions").upsert(
     {
       group_id: parsed.groupId,
       user_id: user.id,
@@ -305,7 +281,8 @@ export async function saveKnockoutPrediction(formData: FormData) {
     throw new Error("Winner pick must be one of the fixture teams.");
   }
 
-  const { error } = await supabase.from("knockout_prediction_entries").upsert(
+  const service = createServiceClient();
+  const { error } = await service.from("knockout_prediction_entries").upsert(
     {
       group_id: parsed.groupId,
       user_id: user.id,
@@ -349,7 +326,8 @@ export async function copyPredictionsFromGroup(formData: FormData) {
   }
 
   let copied = 0;
-  const groupStageOpen = await isGroupStageUnlocked(supabase, parsed.targetGroupId);
+  const groupStageOpen = (await isGroupStageOpenForUser(supabase, parsed.targetGroupId, user.id)).open;
+  const service = createServiceClient();
 
   if (
     groupStageOpen &&
@@ -364,7 +342,7 @@ export async function copyPredictionsFromGroup(formData: FormData) {
 
       if (error) throw error;
       if (data?.length) {
-        const { error: upsertError } = await supabase.from("group_table_predictions").upsert(
+        const { error: upsertError } = await service.from("group_table_predictions").upsert(
           data.map((prediction) => ({
             group_id: parsed.targetGroupId,
             user_id: user.id,
@@ -387,7 +365,7 @@ export async function copyPredictionsFromGroup(formData: FormData) {
 
       if (error) throw error;
       if (data?.length) {
-        const { error: upsertError } = await supabase.from("match_predictions").upsert(
+        const { error: upsertError } = await service.from("match_predictions").upsert(
           data.map((prediction) => ({
             group_id: parsed.targetGroupId,
             user_id: user.id,
@@ -420,7 +398,7 @@ export async function copyPredictionsFromGroup(formData: FormData) {
 
       if (error) throw error;
       if (data?.length) {
-        const { error: upsertError } = await supabase.from("knockout_prediction_entries").upsert(
+        const { error: upsertError } = await service.from("knockout_prediction_entries").upsert(
           data.map((prediction) => ({
             group_id: parsed.targetGroupId,
             user_id: user.id,
@@ -445,7 +423,7 @@ export async function copyPredictionsFromGroup(formData: FormData) {
 
       if (error) throw error;
       if (data?.length) {
-        const { error: upsertError } = await supabase.from("match_predictions").upsert(
+        const { error: upsertError } = await service.from("match_predictions").upsert(
           data.map((prediction) => ({
             group_id: parsed.targetGroupId,
             user_id: user.id,

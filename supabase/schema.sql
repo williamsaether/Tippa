@@ -177,6 +177,18 @@ create table public.knockout_prediction_entries (
   unique(group_id, user_id, round_key, slot_index)
 );
 
+create table public.prediction_lock_overrides (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null references public.groups(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  prediction_phase stage_type not null default 'group',
+  expires_at timestamptz not null,
+  reason text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index idx_group_members_user_id on public.group_members(user_id);
 create index idx_group_members_group_id on public.group_members(group_id);
 create index idx_group_table_predictions_group_id on public.group_table_predictions(group_id);
@@ -184,6 +196,14 @@ create index idx_match_predictions_group_id on public.match_predictions(group_id
 create index idx_match_predictions_match_id on public.match_predictions(match_id);
 create index idx_knockout_prediction_entries_group_id on public.knockout_prediction_entries(group_id);
 create index idx_group_match_overrides_group_id on public.group_match_overrides(group_id);
+create index idx_prediction_lock_overrides_group_id on public.prediction_lock_overrides(group_id);
+create index idx_prediction_lock_overrides_user_id on public.prediction_lock_overrides(user_id);
+create unique index idx_prediction_lock_overrides_group_scope
+  on public.prediction_lock_overrides(group_id, prediction_phase)
+  where user_id is null;
+create unique index idx_prediction_lock_overrides_user_scope
+  on public.prediction_lock_overrides(group_id, user_id, prediction_phase)
+  where user_id is not null;
 create index idx_matches_tournament_id on public.matches(tournament_id);
 create index idx_matches_stage_type on public.matches(stage_type);
 create index idx_matches_round_key on public.matches(round_key);
@@ -207,6 +227,7 @@ create trigger group_match_overrides_updated_at before update on public.group_ma
 create trigger group_table_predictions_updated_at before update on public.group_table_predictions for each row execute function public.handle_updated_at();
 create trigger match_predictions_updated_at before update on public.match_predictions for each row execute function public.handle_updated_at();
 create trigger knockout_prediction_entries_updated_at before update on public.knockout_prediction_entries for each row execute function public.handle_updated_at();
+create trigger prediction_lock_overrides_updated_at before update on public.prediction_lock_overrides for each row execute function public.handle_updated_at();
 
 create or replace function public.is_group_member(target_group_id uuid)
 returns boolean
@@ -268,6 +289,7 @@ alter table public.group_match_overrides enable row level security;
 alter table public.group_table_predictions enable row level security;
 alter table public.match_predictions enable row level security;
 alter table public.knockout_prediction_entries enable row level security;
+alter table public.prediction_lock_overrides enable row level security;
 
 create policy "Users can read own profile" on public.profiles for select to authenticated using (id = auth.uid());
 create policy "Group members can read member profiles" on public.profiles for select to authenticated using (
