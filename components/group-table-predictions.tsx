@@ -63,8 +63,13 @@ export function GroupTablePredictions({
   const dragged = useRef<{ groupName: string; index: number } | null>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const saveVersions = useRef<Record<string, number>>({});
+  const [showFlags, setShowFlags] = useState(false);
   const selectedThirds = Object.values(thirdPlaceAdvances).filter(Boolean).length;
   const missingThirds = Math.max(maxThirdPlaceAdvancers - selectedThirds, 0);
+
+  useEffect(() => {
+    setShowFlags(supportsFlagEmoji());
+  }, []);
 
   useEffect(() => {
     setOrders(initialOrders);
@@ -168,8 +173,8 @@ export function GroupTablePredictions({
           const thirdAdvances = thirdPlaceAdvances[group.groupName] ?? false;
 
           return (
-            <section key={group.groupName} className="min-w-0 rounded-3xl border bg-background p-3 shadow-sm">
-              <div className="mb-3 flex items-center justify-between gap-3 px-1">
+            <section key={group.groupName} className="min-w-0 rounded-2xl border bg-background p-2 shadow-sm sm:rounded-3xl sm:p-3">
+              <div className="mb-2 flex items-center justify-between gap-2 px-1 sm:mb-3 sm:gap-3">
                 <div>
                   <h2 className="text-lg font-black">{group.groupName}</h2>
                   <p className="text-xs text-muted-foreground">Final group table</p>
@@ -192,7 +197,7 @@ export function GroupTablePredictions({
                 </Button>
               ) : null}
 
-              <div className="space-y-2">
+              <div className="space-y-1.5 sm:space-y-2">
                 {teams.map((team, index) => {
                   const directAdvancer = index < 2;
                   const thirdPlaceAdvancer = index === 2 && thirdAdvances;
@@ -219,24 +224,29 @@ export function GroupTablePredictions({
                         reorder(group.groupName, source.index, index);
                       }}
                       className={cn(
-                        "grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 rounded-2xl border px-3 py-2 shadow-sm transition hover:border-primary/40",
+                        "grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-1.5 rounded-xl border px-1.5 py-1.5 shadow-sm transition hover:border-primary/40 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto] sm:gap-3 sm:rounded-2xl sm:px-3 sm:py-2",
                         directAdvancer && "border-emerald-200 bg-emerald-50/80",
                         thirdPlaceAdvancer && "border-sky-200 bg-sky-50/90",
                         !directAdvancer && !thirdPlaceAdvancer && "bg-card"
                       )}
                     >
                       <div className="text-center text-sm font-black text-muted-foreground">{index + 1}</div>
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="text-2xl leading-none" aria-hidden="true">
-                          {team.flag}
+                      <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
+                        {showFlags ? (
+                          <span className="text-xl leading-none sm:text-2xl" aria-hidden="true">
+                            {team.flag}
+                          </span>
+                        ) : null}
+                        <span className="min-w-0 break-words text-sm font-bold leading-tight sm:truncate sm:text-base sm:leading-normal">
+                          {team.name}
                         </span>
-                        <span className="truncate font-bold">{team.name}</span>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-0.5 sm:gap-1">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
+                          className="h-7 w-7 sm:h-10 sm:w-10"
                           disabled={locked || index === 0}
                           aria-label={`Move ${team.name} up`}
                           onClick={() => reorder(group.groupName, index, index - 1)}
@@ -247,6 +257,7 @@ export function GroupTablePredictions({
                           type="button"
                           variant="ghost"
                           size="icon"
+                          className="h-7 w-7 sm:h-10 sm:w-10"
                           disabled={locked || index === teams.length - 1}
                           aria-label={`Move ${team.name} down`}
                           onClick={() => reorder(group.groupName, index, index + 1)}
@@ -265,6 +276,23 @@ export function GroupTablePredictions({
       </div>
     </div>
   );
+}
+
+function supportsFlagEmoji() {
+  if (typeof window === "undefined") return false;
+
+  const platform = window.navigator.platform.toLowerCase();
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  if (platform.includes("win") || userAgent.includes("windows")) return false;
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) return false;
+
+  context.font = "32px sans-serif";
+  const flagWidth = context.measureText("🇳🇴").width;
+  const lettersWidth = context.measureText("NO").width;
+  return Math.abs(flagWidth - lettersWidth) > 1;
 }
 
 function StatusBadge({ status }: { status: SaveStatus }) {

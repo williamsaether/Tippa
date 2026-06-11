@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { notFound } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { createInviteCode } from "@/lib/utils";
 import { requireAppUser } from "@/lib/dev-auth";
@@ -23,6 +24,9 @@ export const getGroupContext = cache(async function getGroupContext(groupId: str
     .eq("group_id", groupId);
 
   if (membersError) throw membersError;
+  const isMember = members?.some((member) => member.user_id === user.id);
+  if (!isMember) notFound();
+
   const isAdmin = members?.some(
     (member) => member.user_id === user.id && member.role === "admin"
   );
@@ -37,16 +41,28 @@ export const getGroupContext = cache(async function getGroupContext(groupId: str
 });
 
 export const getCopyableGroups = cache(async function getCopyableGroups(groupId: string) {
-  const { supabase, group } = await getGroupContext(groupId);
+  const { supabase, user, group } = await getGroupContext(groupId);
   const { data, error } = await supabase
-    .from("groups")
-    .select("id,name")
-    .eq("tournament_id", group.tournament_id)
-    .neq("id", groupId)
-    .order("name");
+    .from("group_members")
+    .select("groups(id,name,tournament_id)")
+    .eq("user_id", user.id);
 
   if (error) throw error;
-  return data ?? [];
+  return (data ?? [])
+    .map((membership) => {
+      const membershipGroup = Array.isArray(membership.groups)
+        ? membership.groups[0]
+        : membership.groups;
+      return membershipGroup ?? null;
+    })
+    .filter(
+      (membershipGroup): membershipGroup is { id: string; name: string; tournament_id: string } =>
+        Boolean(membershipGroup) &&
+        membershipGroup.id !== groupId &&
+        membershipGroup.tournament_id === group.tournament_id
+    )
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map(({ id, name }) => ({ id, name }));
 });
 
 export const getGroupLeaderboardPredictionData = cache(
@@ -151,10 +167,11 @@ export const getAdminPageData = cache(async function getAdminPageData(groupId: s
 
 export const getDashboardData = cache(async function getDashboardData() {
   const { supabase, user } = await requireUser();
-  const { data: groups, error } = await supabase
-    .from("groups")
-    .select("id,name,prize_mode,tournament_id,tournaments(name)")
-    .order("created_at", { ascending: false });
+  const { data: memberships, error } = await supabase
+    .from("group_members")
+    .select("joined_at,groups(id,name,prize_mode,tournament_id,created_at,tournaments(name))")
+    .eq("user_id", user.id)
+    .order("joined_at", { ascending: false });
 
   if (error) throw error;
 
@@ -165,7 +182,12 @@ export const getDashboardData = cache(async function getDashboardData() {
     .maybeSingle();
 
   const cards = await Promise.all(
-    (groups ?? []).map(async (group) => {
+    (memberships ?? []).flatMap((membership) => {
+      const membershipGroup = Array.isArray(membership.groups)
+        ? membership.groups[0]
+        : membership.groups;
+      return membershipGroup ? [membershipGroup] : [];
+    }).map(async (group) => {
       const { data: nextMatch } = await supabase
         .from("matches")
         .select("kickoff_time")

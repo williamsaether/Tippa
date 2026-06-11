@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAppUser } from "@/lib/dev-auth";
+import { createServiceClient } from "@/lib/supabase/server";
 
 const schema = z.object({
   displayName: z.string().trim().min(2).max(40)
@@ -34,11 +35,21 @@ export async function updateGroupDisplayName(formData: FormData) {
   });
   const { supabase, user } = await requireAppUser();
 
-  const { error } = await supabase
+  const { data: membership, error: membershipError } = await supabase
+    .from("group_members")
+    .select("id")
+    .eq("group_id", parsed.groupId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership) throw new Error("Forbidden");
+
+  const service = createServiceClient();
+  const { error } = await service
     .from("group_members")
     .update({ display_name: parsed.displayName })
-    .eq("group_id", parsed.groupId)
-    .eq("user_id", user.id);
+    .eq("id", membership.id);
 
   if (error) throw error;
   revalidatePath(`/groups/${parsed.groupId}`);

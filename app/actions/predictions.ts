@@ -47,6 +47,18 @@ async function requireUser() {
   return requireAppUser();
 }
 
+async function assertGroupMember(supabase: SupabaseClient, groupId: string, userId: string) {
+  const { data: member, error } = await supabase
+    .from("group_members")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!member) throw new Error("Forbidden");
+}
+
 async function getGroupTournament(supabase: SupabaseClient, groupId: string) {
   const { data: group, error } = await supabase
     .from("groups")
@@ -162,6 +174,7 @@ export async function saveGroupTablePrediction(formData: FormData) {
     thirdPlaceAdvances: formData.get("thirdPlaceAdvances") === "true"
   });
   const { supabase, user } = await requireUser();
+  await assertGroupMember(supabase, parsed.groupId, user.id);
   const { tournamentId } = await getGroupTournament(supabase, parsed.groupId);
   await assertGroupStageUnlocked(supabase, parsed.groupId);
   await assertTablePredictionShape(supabase, tournamentId, parsed.groupName, parsed.rankedTeamIds);
@@ -208,6 +221,7 @@ export async function saveMatchPrediction(formData: FormData) {
     awayScore: formData.get("awayScore") || undefined
   });
   const { supabase, user } = await requireUser();
+  await assertGroupMember(supabase, parsed.groupId, user.id);
   const { tournamentId } = await getGroupTournament(supabase, parsed.groupId);
   if (parsed.predictionPhase === "knockout") {
     await assertKnockoutUnlocked(supabase, parsed.groupId);
@@ -271,6 +285,7 @@ export async function saveKnockoutPrediction(formData: FormData) {
     predictedTeamId: formData.get("predictedTeamId")
   });
   const { supabase, user } = await requireUser();
+  await assertGroupMember(supabase, parsed.groupId, user.id);
   const { tournamentId } = await getGroupTournament(supabase, parsed.groupId);
   await assertKnockoutUnlocked(supabase, parsed.groupId);
 
@@ -317,6 +332,11 @@ export async function copyPredictionsFromGroup(formData: FormData) {
   }
 
   const { supabase, user } = await requireUser();
+  await Promise.all([
+    assertGroupMember(supabase, parsed.sourceGroupId, user.id),
+    assertGroupMember(supabase, parsed.targetGroupId, user.id)
+  ]);
+
   const [source, target, sourceSettings, targetSettings] = await Promise.all([
     getGroupTournament(supabase, parsed.sourceGroupId),
     getGroupTournament(supabase, parsed.targetGroupId),
