@@ -22,14 +22,3 @@ export function createInviteCode(value: string) {
     .replace(/-+/g, "-")
     .slice(0, 24);
 }
-
-const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-export const dateFormat = new Intl.DateTimeFormat(undefined, {
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-  timeZone: userTimeZone,
-})

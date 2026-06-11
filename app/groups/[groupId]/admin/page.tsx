@@ -5,6 +5,7 @@ import {
   saveMatchOverride,
   syncTournamentForGroup
 } from "@/app/actions/admin";
+import { ClientDateTime } from "@/components/client-date-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +22,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { getAdminPageData, getGroupContext } from "@/lib/data";
-import { dateFormat } from "@/lib/utils";
 
 export default async function AdminPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = await params;
@@ -43,7 +43,7 @@ export default async function AdminPage({ params }: { params: Promise<{ groupId:
             <p className="text-sm text-muted-foreground">Group-stage lock</p>
             <p className="text-lg font-black">
               {firstGroup?.kickoff_time
-                ? new Date(firstGroup.kickoff_time).toLocaleString()
+                ? <ClientDateTime value={firstGroup.kickoff_time} />
                 : "Waiting for fixtures"}
             </p>
           </div>
@@ -54,7 +54,7 @@ export default async function AdminPage({ params }: { params: Promise<{ groupId:
             </p>
             {firstKnockout?.kickoff_time ? (
               <p className="text-sm text-muted-foreground">
-                Locks {dateFormat.format((firstKnockout.kickoff_time))}
+                Locks <ClientDateTime value={firstKnockout.kickoff_time} />
               </p>
             ) : null}
           </div>
@@ -108,7 +108,12 @@ export default async function AdminPage({ params }: { params: Promise<{ groupId:
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {match.stage}
-                  {match.kickoff_time ? ` · ${dateFormat.format(new Date(match.kickoff_time))}` : ""}
+                  {match.kickoff_time ? (
+                    <>
+                      {" · "}
+                      <ClientDateTime value={match.kickoff_time} />
+                    </>
+                  ) : null}
                 </p>
               </div>
               <div className="flex items-center gap-2 text-sm font-black">

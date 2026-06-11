@@ -1,5 +1,6 @@
 import { Trophy } from "lucide-react";
 import { saveKnockoutPrediction, saveMatchPrediction } from "@/app/actions/predictions";
+import { ClientDateTime } from "@/components/client-date-time";
 import { GroupTablePredictions } from "@/components/group-table-predictions";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getGroupContext, getPredictionPageData } from "@/lib/data";
 import { flagForTeam } from "@/lib/team-flags";
-import { dateFormat } from "@/lib/utils";
 
 type MatchRow = {
   id: string;
@@ -146,7 +146,7 @@ export default async function PredictionsPage({
         <CardContent className="space-y-4">
           {firstGroupKickoff ? (
             <p className="text-sm text-muted-foreground">
-              Locks {dateFormat.format(new Date(firstGroupKickoff))}.
+              Locks <ClientDateTime value={firstGroupKickoff} />.
             </p>
           ) : null}
           {settings.group_stage_prediction_mode === "table" ? (
