@@ -83,16 +83,20 @@ export default async function StandingsPage({ params }: { params: Promise<{ grou
                 </CardHeader>
                 <CardContent className="space-y-3 p-4 pt-0">
                   <StandingsTable
-                      rows={standings.map((standing, index) => ({
-                        teamId: standing.teamId,
-                        rank: index + 1,
-                        played: standing.played,
-                        points: standing.points,
-                        advances: index < directAdvancers,
-                        predictedTeamId: ownPrediction?.ranked_team_ids[index] ?? null
-                      }))}
-                      teamById={teamById}
-                    />
+                    rows={standings.map((standing, index) => ({
+                      teamId: standing.teamId,
+                      rank: index + 1,
+                      played: standing.played,
+                      points: standing.points,
+                      advances: index < directAdvancers,
+                      predictedTeamId: ownPrediction?.ranked_team_ids[index] ?? null,
+                      predictedStatus:
+                        index === directAdvancers && ownPrediction?.third_place_advances
+                            ? "third"
+                            : "none"
+                    }))}
+                    teamById={teamById}
+                  />
                   <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                     <span>Your prediction: {ownPrediction?.points ?? 0} pts</span>
                     <span>Top {directAdvancers} advance</span>
@@ -109,6 +113,8 @@ export default async function StandingsPage({ params }: { params: Promise<{ grou
                           points={entry.points}
                           teamIds={entry.ranked_team_ids}
                           teamById={teamById}
+                          directAdvancers={directAdvancers}
+                          thirdPlaceAdvances={entry.third_place_advances}
                         />
                       ))}
                       {otherPredictions.length === 0 ? (
@@ -134,6 +140,7 @@ type CompactRow = {
   points: number;
   advances: boolean;
   predictedTeamId: string | null;
+  predictedStatus: "direct" | "third" | "none";
 };
 
 function StandingsTable({
@@ -148,9 +155,9 @@ function StandingsTable({
       <div className="flex min-h-11 items-center justify-between gap-2 border-b px-3 py-2">
         <h3 className="truncate text-sm font-black">Latest standings</h3>
       </div>
-      <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_2rem_2.5rem_2.5rem] items-center gap-1 bg-muted/40 px-3 py-1.5 text-center text-[10px] font-black uppercase text-muted-foreground">
-        <span>#</span>
-        <span className="text-left">Team</span>
+      <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_2rem_2.5rem_3.25rem] items-center bg-muted/40 py-1.5 text-center text-[10px] font-black uppercase text-muted-foreground">
+        <span className="pl-3">#</span>
+        <span className="pl-1 text-left">Team</span>
         <span>P</span>
         <span>Pts</span>
         <span>Your pick</span>
@@ -161,19 +168,22 @@ function StandingsTable({
           <div
             key={row.teamId}
             className={cn(
-              "grid min-h-10 grid-cols-[1.5rem_minmax(0,1fr)_2rem_2.5rem_2.5rem] items-center gap-1 border-t px-3 py-2 text-center text-sm",
+              "grid min-h-10 grid-cols-[2.25rem_minmax(0,1fr)_2rem_2.5rem_3.25rem] items-center border-t py-2 text-center text-sm",
               row.advances && "bg-emerald-50/70"
             )}
           >
-            <span className="font-black">{row.rank}</span>
-            <span className="min-w-0 truncate text-left font-bold">
+            <span className="pl-3 font-black">{row.rank}</span>
+            <span className="min-w-0 truncate pl-1 text-left font-bold">
               {team?.flag_emoji ? <span className="mr-2" aria-hidden="true">{team.flag_emoji}</span> : null}
               {team?.name ?? "Unknown team"}
             </span>
             <span>{row.played}</span>
             <span className="font-black">{row.points}</span>
             <span
-              className="text-xl leading-none"
+              className={cn(
+                "-my-2 flex min-h-10 self-stretch items-center justify-center text-xl leading-none",
+                row.predictedStatus === "third" && "bg-sky-50/90"
+              )}
               title={row.predictedTeamId ? teamById.get(row.predictedTeamId)?.name ?? "Unknown team" : "No prediction"}
               aria-label={row.predictedTeamId ? teamById.get(row.predictedTeamId)?.name ?? "Unknown team" : "No prediction"}
             >
@@ -190,12 +200,16 @@ function MemberPredictionTable({
   title,
   points,
   teamIds,
-  teamById
+  teamById,
+  directAdvancers,
+  thirdPlaceAdvances
 }: {
   title: string;
   points: number;
   teamIds: string[];
   teamById: Map<string, { id: string; name: string; flag_emoji: string | null }>;
+  directAdvancers: number;
+  thirdPlaceAdvances: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-xl border bg-background">
@@ -205,8 +219,17 @@ function MemberPredictionTable({
       </div>
       {teamIds.map((teamId, index) => {
         const team = teamById.get(teamId);
+        const directAdvancer = index < directAdvancers;
+        const thirdPlaceAdvancer = index === directAdvancers && thirdPlaceAdvances;
         return (
-          <div key={teamId} className="grid grid-cols-[1.5rem_1.75rem_minmax(0,1fr)] items-center border-t px-3 py-2 text-sm first:border-t-0">
+          <div
+            key={teamId}
+            className={cn(
+              "grid grid-cols-[1.5rem_1.75rem_minmax(0,1fr)] items-center border-t px-3 py-2 text-sm first:border-t-0",
+              directAdvancer && "bg-emerald-50/80",
+              thirdPlaceAdvancer && "bg-sky-50/90"
+            )}
+          >
             <span className="font-black">{index + 1}</span>
             <span className="text-lg leading-none" aria-hidden="true">{team?.flag_emoji ?? "⚑"}</span>
             <span className="truncate font-bold">{team?.name ?? "Unknown team"}</span>
