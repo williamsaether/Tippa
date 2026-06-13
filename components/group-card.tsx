@@ -55,7 +55,7 @@ export function GroupCard({ group, index }: { group: GroupCardData; index: numbe
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CalendarClock className="h-4 w-4" />
               {group.nextKickoff
-                ? `Next lock ${format(new Date(group.nextKickoff), "MMM d, HH:mm")}`
+                ? `Next match ${format(new Date(group.nextKickoff), "MMM d, HH:mm")}`
                 : "No synced matches yet"}
             </div>
             <p className="text-sm font-bold">
