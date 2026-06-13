@@ -128,6 +128,33 @@ export const getPredictionPageData = cache(async function getPredictionPageData(
   };
 });
 
+export const getStandingsPageData = cache(async function getStandingsPageData(groupId: string) {
+  const { supabase, group } = await getGroupContext(groupId);
+  const [{ data: matches, error: matchesError }, { data: teams, error: teamsError }, { data: predictions, error: predictionsError }] =
+    await Promise.all([
+      supabase
+        .from("matches")
+        .select("group_name,status,home_team_id,away_team_id,home_score,away_score,updated_at")
+        .eq("tournament_id", group.tournament_id)
+        .eq("stage_type", "group"),
+      supabase.from("teams").select("id,name,flag_emoji").eq("tournament_id", group.tournament_id),
+      supabase
+        .from("group_table_predictions")
+        .select("user_id,group_name,ranked_team_ids,third_place_advances,points")
+        .eq("group_id", groupId)
+    ]);
+
+  if (matchesError) throw matchesError;
+  if (teamsError) throw teamsError;
+  if (predictionsError) throw predictionsError;
+
+  return {
+    matches: matches ?? [],
+    teams: teams ?? [],
+    predictions: predictions ?? []
+  };
+});
+
 export const getAdminPageData = cache(async function getAdminPageData(groupId: string) {
   const { supabase, group } = await getGroupContext(groupId);
   const [{ data: matches }, { data: firstGroup }, { data: firstKnockout }] = await Promise.all([

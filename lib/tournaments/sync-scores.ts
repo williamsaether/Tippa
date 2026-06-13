@@ -11,6 +11,7 @@ import {
   type RoundKey,
   type ScoreSettings
 } from "@/lib/scoring";
+import { calculateGroupStandings } from "@/lib/tournaments/standings";
 
 type MatchRow = {
   id: string;
@@ -51,61 +52,6 @@ function winnerTeamId(match: MatchRow) {
     return null;
   }
   return match.home_score > match.away_score ? match.home_team_id : match.away_team_id;
-}
-
-function groupStandings(matches: MatchRow[]): RankedTeam[] {
-  const table = new Map<string, { teamId: string; points: number; goalDifference: number; goalsFor: number }>();
-
-  for (const match of matches) {
-    if (
-      match.status !== "finished" ||
-      !match.home_team_id ||
-      !match.away_team_id ||
-      match.home_score == null ||
-      match.away_score == null
-    ) {
-      continue;
-    }
-
-    const home = table.get(match.home_team_id) ?? {
-      teamId: match.home_team_id,
-      points: 0,
-      goalDifference: 0,
-      goalsFor: 0
-    };
-    const away = table.get(match.away_team_id) ?? {
-      teamId: match.away_team_id,
-      points: 0,
-      goalDifference: 0,
-      goalsFor: 0
-    };
-
-    home.goalsFor += match.home_score;
-    away.goalsFor += match.away_score;
-    home.goalDifference += match.home_score - match.away_score;
-    away.goalDifference += match.away_score - match.home_score;
-
-    if (match.home_score > match.away_score) {
-      home.points += 3;
-    } else if (match.home_score < match.away_score) {
-      away.points += 3;
-    } else {
-      home.points += 1;
-      away.points += 1;
-    }
-
-    table.set(home.teamId, home);
-    table.set(away.teamId, away);
-  }
-
-  return [...table.values()]
-    .sort(
-      (a, b) =>
-        b.points - a.points ||
-        b.goalDifference - a.goalDifference ||
-        b.goalsFor - a.goalsFor ||
-        a.teamId.localeCompare(b.teamId)
-    );
 }
 
 function settingsByGroup(rows: SettingsRow[] | null | undefined) {
@@ -189,12 +135,12 @@ async function recalculateWithMatches(
     .in("group_id", groupIds);
   if (tableError) throw tableError;
 
-  const standingsByGroup = new Map<string, ReturnType<typeof groupStandings>>();
+  const standingsByGroup = new Map<string, RankedTeam[]>();
   for (const match of matches.filter((match) => match.stage_type === "group" && match.group_name)) {
     if (!standingsByGroup.has(match.group_name as string)) {
       standingsByGroup.set(
         match.group_name as string,
-        groupStandings(
+        calculateGroupStandings(
           matches.filter(
             (groupMatch) => groupMatch.stage_type === "group" && groupMatch.group_name === match.group_name
           )

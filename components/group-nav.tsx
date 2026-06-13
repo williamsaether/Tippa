@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Home, Settings, Shield, Trophy } from "lucide-react";
+import { Home, ListOrdered, Settings, Shield, Trophy } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,7 @@ export function GroupNav({
         : null;
   const links = [
     ["Overview", `/groups/${groupId}`, Home],
+    ["Standings", `/groups/${groupId}/standings`, ListOrdered],
     ["Predictions", `/groups/${groupId}/predictions`, Trophy],
     ["Settings", `/groups/${groupId}/settings`, Settings]
   ] as const;

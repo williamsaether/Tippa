@@ -1,0 +1,229 @@
+import { ArrowRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getGroupContext, getStandingsPageData } from "@/lib/data";
+import { scoreSettingsFromRow } from "@/lib/scoring";
+import { calculateGroupStandings } from "@/lib/tournaments/standings";
+import { cn } from "@/lib/utils";
+
+const groupNameSorter = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+type TablePrediction = {
+  user_id: string;
+  group_name: string;
+  ranked_team_ids: string[];
+  third_place_advances: boolean;
+  points: number;
+};
+
+export default async function StandingsPage({ params }: { params: Promise<{ groupId: string }> }) {
+  const { groupId } = await params;
+  const { group, user, members } = await getGroupContext(groupId);
+  const { matches, teams, predictions } = await getStandingsPageData(groupId);
+  const tournament = Array.isArray(group.tournaments) ? group.tournaments[0] : group.tournaments;
+  const settingsRow = Array.isArray(group.group_prediction_settings)
+    ? group.group_prediction_settings[0]
+    : group.group_prediction_settings;
+  const settings = scoreSettingsFromRow(settingsRow as never);
+  const directAdvancers = tournament?.group_direct_advancers ?? 2;
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+  const typedPredictions = predictions as TablePrediction[];
+  const memberNameByUserId = new Map(
+    members.map((member) => {
+      const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+      return [member.user_id, member.display_name || profile?.display_name || "Pool member"];
+    })
+  );
+  const matchesByGroup = new Map<string, typeof matches>();
+
+  for (const match of matches) {
+    if (!match.group_name) continue;
+    const groupMatches = matchesByGroup.get(match.group_name) ?? [];
+    groupMatches.push(match);
+    matchesByGroup.set(match.group_name, groupMatches);
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Latest standings</CardTitle>
+          <CardDescription>
+            Completed results from the latest sync. Member predictions appear after group-stage predictions lock.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm sm:grid-cols-3">
+          <ScoreRule label="Exact position" value={settings.tableExactPositionPoints} />
+          <ScoreRule label="Correct advancement status" value={settings.tableAdvancingStatusPoints} />
+          <ScoreRule label="Correct group winner bonus" value={settings.tableGroupWinnerBonus} />
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {[...matchesByGroup.entries()]
+          .sort(([left], [right]) => groupNameSorter.compare(left, right))
+          .map(([cupGroupName, groupMatches]) => {
+            const standings = calculateGroupStandings(groupMatches, { includeTeamsWithoutResults: true });
+            const memberPredictions = typedPredictions
+              .filter((entry) => entry.group_name === cupGroupName)
+              .sort((left, right) => {
+                if (left.user_id === user.id) return -1;
+                if (right.user_id === user.id) return 1;
+                return (memberNameByUserId.get(left.user_id) ?? "").localeCompare(
+                  memberNameByUserId.get(right.user_id) ?? ""
+                );
+              });
+            const ownPrediction = memberPredictions.find((entry) => entry.user_id === user.id);
+            const otherPredictions = memberPredictions.filter((entry) => entry.user_id !== user.id);
+
+            return (
+              <Card key={cupGroupName}>
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle>{cupGroupName}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 p-4 pt-0">
+                  <StandingsTable
+                      rows={standings.map((standing, index) => ({
+                        teamId: standing.teamId,
+                        rank: index + 1,
+                        played: standing.played,
+                        points: standing.points,
+                        advances: index < directAdvancers,
+                        predictedTeamId: ownPrediction?.ranked_team_ids[index] ?? null
+                      }))}
+                      teamById={teamById}
+                    />
+                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <span>Your prediction: {ownPrediction?.points ?? 0} pts</span>
+                    <span>Top {directAdvancers} advance</span>
+                  </div>
+                  <details className="rounded-2xl border bg-muted/20">
+                    <summary className="cursor-pointer px-3 py-2 text-sm font-black">
+                      Other predictions ({otherPredictions.length})
+                    </summary>
+                    <div className="grid gap-2 border-t p-3 sm:grid-cols-2">
+                      {otherPredictions.map((entry) => (
+                        <MemberPredictionTable
+                          key={entry.user_id}
+                          title={memberNameByUserId.get(entry.user_id) ?? "Pool member"}
+                          points={entry.points}
+                          teamIds={entry.ranked_team_ids}
+                          teamById={teamById}
+                        />
+                      ))}
+                      {otherPredictions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Other members become visible after predictions lock.
+                        </p>
+                      ) : null}
+                    </div>
+                  </details>
+                </CardContent>
+              </Card>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
+type CompactRow = {
+  teamId: string;
+  rank: number;
+  played: number;
+  points: number;
+  advances: boolean;
+  predictedTeamId: string | null;
+};
+
+function StandingsTable({
+  rows,
+  teamById
+}: {
+  rows: CompactRow[];
+  teamById: Map<string, { id: string; name: string; flag_emoji: string | null }>;
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl border bg-background">
+      <div className="flex min-h-11 items-center justify-between gap-2 border-b px-3 py-2">
+        <h3 className="truncate text-sm font-black">Latest standings</h3>
+      </div>
+      <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_2rem_2.5rem_2.5rem] items-center gap-1 bg-muted/40 px-3 py-1.5 text-center text-[10px] font-black uppercase text-muted-foreground">
+        <span>#</span>
+        <span className="text-left">Team</span>
+        <span>P</span>
+        <span>Pts</span>
+        <span>Your pick</span>
+      </div>
+      {rows.map((row) => {
+        const team = teamById.get(row.teamId);
+        return (
+          <div
+            key={row.teamId}
+            className={cn(
+              "grid min-h-10 grid-cols-[1.5rem_minmax(0,1fr)_2rem_2.5rem_2.5rem] items-center gap-1 border-t px-3 py-2 text-center text-sm",
+              row.advances && "bg-emerald-50/70"
+            )}
+          >
+            <span className="font-black">{row.rank}</span>
+            <span className="min-w-0 truncate text-left font-bold">
+              {team?.flag_emoji ? <span className="mr-2" aria-hidden="true">{team.flag_emoji}</span> : null}
+              {team?.name ?? "Unknown team"}
+            </span>
+            <span>{row.played}</span>
+            <span className="font-black">{row.points}</span>
+            <span
+              className="text-xl leading-none"
+              title={row.predictedTeamId ? teamById.get(row.predictedTeamId)?.name ?? "Unknown team" : "No prediction"}
+              aria-label={row.predictedTeamId ? teamById.get(row.predictedTeamId)?.name ?? "Unknown team" : "No prediction"}
+            >
+              {row.predictedTeamId ? teamById.get(row.predictedTeamId)?.flag_emoji ?? "⚑" : "-"}
+            </span>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function MemberPredictionTable({
+  title,
+  points,
+  teamIds,
+  teamById
+}: {
+  title: string;
+  points: number;
+  teamIds: string[];
+  teamById: Map<string, { id: string; name: string; flag_emoji: string | null }>;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border bg-background">
+      <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+        <span className="min-w-0 truncate text-sm font-black">{title}</span>
+        <Badge variant="outline" className="shrink-0 px-2">{points} pts</Badge>
+      </div>
+      {teamIds.map((teamId, index) => {
+        const team = teamById.get(teamId);
+        return (
+          <div key={teamId} className="grid grid-cols-[1.5rem_1.75rem_minmax(0,1fr)] items-center border-t px-3 py-2 text-sm first:border-t-0">
+            <span className="font-black">{index + 1}</span>
+            <span className="text-lg leading-none" aria-hidden="true">{team?.flag_emoji ?? "⚑"}</span>
+            <span className="truncate font-bold">{team?.name ?? "Unknown team"}</span>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function ScoreRule({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border bg-background px-4 py-3 sm:block">
+      <span className="font-bold">{label}</span>
+      <span className="flex items-center gap-1 font-black text-[var(--tippa-primary)] sm:mt-1">
+        <ArrowRight className="h-3.5 w-3.5" /> {value} pts
+      </span>
+    </div>
+  );
+}
