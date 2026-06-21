@@ -2,7 +2,9 @@ import { cache } from "react";
 import { notFound } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { createInviteCode } from "@/lib/utils";
-import { requireAppUser } from "@/lib/dev-auth";
+import { isDevAppUser, requireAppUser } from "@/lib/dev-auth";
+import { ensureLockedTablePredictionDefaults } from "@/lib/table-prediction-defaults";
+import { recalculateScoresForGroup } from "@/lib/tournaments/sync-scores";
 
 export const requireUser = cache(async function requireUser() {
   return requireAppUser();
@@ -25,7 +27,10 @@ export const getGroupContext = cache(async function getGroupContext(groupId: str
 
   if (membersError) throw membersError;
   const isMember = members?.some((member) => member.user_id === user.id);
-  if (!isMember) notFound();
+  if (!isMember && !isDevAppUser(user)) notFound();
+
+  const insertedDefaults = await ensureLockedTablePredictionDefaults(groupId);
+  if (insertedDefaults > 0) await recalculateScoresForGroup(groupId);
 
   const isAdmin = members?.some(
     (member) => member.user_id === user.id && member.role === "admin"
@@ -210,13 +215,19 @@ export const getGroupPredictionExtensions = cache(async function getGroupPredict
 
 export const getDashboardData = cache(async function getDashboardData() {
   const { supabase, user } = await requireUser();
-  const { data: memberships, error } = await supabase
-    .from("group_members")
-    .select("joined_at,groups(id,name,prize_mode,tournament_id,created_at,tournaments(name))")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: false });
+  const devAccess = isDevAppUser(user);
+  const groups = devAccess
+    ? await supabase
+        .from("groups")
+        .select("id,name,prize_mode,tournament_id,created_at,tournaments(name)")
+        .order("created_at", { ascending: false })
+    : await supabase
+        .from("group_members")
+        .select("joined_at,groups(id,name,prize_mode,tournament_id,created_at,tournaments(name))")
+        .eq("user_id", user.id)
+        .order("joined_at", { ascending: false });
 
-  if (error) throw error;
+  if (groups.error) throw groups.error;
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -225,10 +236,13 @@ export const getDashboardData = cache(async function getDashboardData() {
     .maybeSingle();
 
   const cards = await Promise.all(
-    (memberships ?? []).flatMap((membership) => {
-      const membershipGroup = Array.isArray(membership.groups)
-        ? membership.groups[0]
-        : membership.groups;
+    (groups.data ?? []).flatMap((row) => {
+      if (devAccess && "tournament_id" in row) return [row];
+      const membershipGroup = "groups" in row
+        ? Array.isArray(row.groups)
+          ? row.groups[0]
+          : row.groups
+        : null;
       return membershipGroup ? [membershipGroup] : [];
     }).map(async (group) => {
       const { data: nextMatch } = await supabase

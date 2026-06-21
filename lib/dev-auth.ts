@@ -10,6 +10,10 @@ type AppUser = {
   };
 };
 
+export function isDevAppUser(user: { email?: string | null }) {
+  return env.devMode && user.email === "dev@localhost";
+}
+
 async function getDevUserId() {
   const service = createServiceClient();
   if (env.devMembership) {

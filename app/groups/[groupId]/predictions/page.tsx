@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getGroupContext, getPredictionPageData } from "@/lib/data";
 import { isGroupStageOpenForUser } from "@/lib/prediction-locks";
 import { flagForTeam } from "@/lib/team-flags";
+import { buildDefaultTableOrders } from "@/lib/table-prediction-order";
 
 type MatchRow = {
   id: string;
@@ -96,38 +97,14 @@ export default async function PredictionsPage({
       .filter((prediction) => prediction.source_match_id)
       .map((prediction) => [prediction.source_match_id, prediction])
   );
-  const teamsByGroup = new Map<string, TeamOption[]>();
-
-  for (const match of groupMatches) {
-    const groupName = match.group_name ?? "Group";
-    const list = teamsByGroup.get(groupName) ?? [];
-    for (const team of [
-      match.home_team_id
-        ? {
-            id: match.home_team_id,
-            name: match.home_team_name,
-            flag: flagForTeam(match.home_team_name),
-          }
-        : null,
-      match.away_team_id
-        ? {
-            id: match.away_team_id,
-            name: match.away_team_name,
-            flag: flagForTeam(match.away_team_name),
-          }
-        : null
-    ]) {
-      if (team && !list.some((item) => item.id === team.id)) list.push(team);
-    }
-    teamsByGroup.set(groupName, list);
-  }
-  const tableGroups = [...teamsByGroup.entries()]
+  const defaultOrders = buildDefaultTableOrders(groupMatches);
+  const tableGroups = [...defaultOrders.entries()]
     .sort(([leftGroupName], [rightGroupName]) => groupNameSorter.compare(leftGroupName, rightGroupName))
     .map(([groupName, teams]) => {
       const prediction = tablePredictionByGroup.get(groupName);
       return {
         groupName,
-        teams,
+        teams: teams.map((team): TeamOption => ({ ...team, flag: flagForTeam(team.name) })),
         rankedTeamIds: prediction?.ranked_team_ids ?? null,
         thirdPlaceAdvances: prediction?.third_place_advances ?? false,
         points: prediction?.points ?? null

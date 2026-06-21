@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "sync:tournament": "tsx scripts/sync-tournament.ts"
+    "sync:tournament": "tsx scripts/sync-tournament.ts",
+    "backfill:table-predictions": "tsx scripts/backfill-table-predictions.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

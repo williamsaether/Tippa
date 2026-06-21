@@ -3,6 +3,7 @@ import { flagForTeam } from "@/lib/team-flags";
 import { getAdapterByCode, supportedTournaments } from "@/lib/tournaments/registry";
 import type { NormalizedMatch } from "@/lib/tournaments/types";
 import { recalculateScoresForTournament } from "@/lib/tournaments/sync-scores";
+import { ensureLockedTablePredictionDefaultsForTournament } from "@/lib/table-prediction-defaults";
 
 export async function syncTournament(tournamentCode: string) {
   const adapter = getAdapterByCode(tournamentCode);
@@ -85,6 +86,7 @@ export async function syncTournament(tournamentCode: string) {
   });
 
   if (matchesError) throw matchesError;
+  await ensureLockedTablePredictionDefaultsForTournament(tournamentRow.id);
   await recalculateScoresForTournament(tournamentRow.id);
 
   return {
