@@ -39,6 +39,27 @@ const knockoutSchema = z.object({
   predictedTeamId: z.string().uuid()
 });
 
+const knockoutSnapshotSchema = z.object({
+  groupId: z.string().uuid(),
+  entries: z.array(
+    z.object({
+      roundKey: z.enum(["round_of_32", "round_of_16", "quarter_final", "semi_final", "third_place", "final"]),
+      slotIndex: z.number().int().min(0),
+      sourceMatchId: z.string().uuid(),
+      predictedTeamId: z.string().uuid()
+    })
+  )
+});
+
+const knockoutRoundRank: Record<z.infer<typeof knockoutSchema>["roundKey"], number> = {
+  round_of_32: 1,
+  round_of_16: 2,
+  quarter_final: 3,
+  semi_final: 4,
+  third_place: 5,
+  final: 6
+};
+
 const copyPredictionsSchema = z.object({
   sourceGroupId: z.string().uuid(),
   targetGroupId: z.string().uuid()
@@ -277,11 +298,29 @@ export async function saveKnockoutPrediction(formData: FormData) {
   if (match.tournament_id !== tournamentId) throw new Error("Match does not belong to this group tournament.");
   if (match.stage_type !== "knockout") throw new Error("Winner pick must be for a knockout fixture.");
   if (match.round_key !== parsed.roundKey) throw new Error("Winner pick round does not match the fixture.");
-  if (![match.home_team_id, match.away_team_id].includes(parsed.predictedTeamId)) {
-    throw new Error("Winner pick must be one of the fixture teams.");
-  }
 
   const service = createServiceClient();
+  const { data: team, error: teamError } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("id", parsed.predictedTeamId)
+    .eq("tournament_id", tournamentId)
+    .maybeSingle();
+
+  if (teamError) throw teamError;
+  if (!team) throw new Error("Winner pick must be a tournament team.");
+
+  const { data: existing, error: existingError } = await service
+    .from("knockout_prediction_entries")
+    .select("predicted_team_id")
+    .eq("group_id", parsed.groupId)
+    .eq("user_id", user.id)
+    .eq("round_key", parsed.roundKey)
+    .eq("slot_index", parsed.slotIndex)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
   const { error } = await service.from("knockout_prediction_entries").upsert(
     {
       group_id: parsed.groupId,
@@ -295,7 +334,100 @@ export async function saveKnockoutPrediction(formData: FormData) {
   );
 
   if (error) throw error;
+
+  if (existing?.predicted_team_id && existing.predicted_team_id !== parsed.predictedTeamId) {
+    const laterRounds = Object.entries(knockoutRoundRank)
+      .filter(([, rank]) => rank > knockoutRoundRank[parsed.roundKey])
+      .map(([roundKey]) => roundKey);
+
+    if (laterRounds.length) {
+      const { error: deleteError } = await service
+        .from("knockout_prediction_entries")
+        .delete()
+        .eq("group_id", parsed.groupId)
+        .eq("user_id", user.id)
+        .in("round_key", laterRounds);
+
+      if (deleteError) throw deleteError;
+    }
+  }
+
   revalidatePath(`/groups/${parsed.groupId}/predictions`);
+}
+
+export async function saveKnockoutBracketSnapshot(formData: FormData) {
+  const rawEntries = formData.get("entries");
+  const parsed = knockoutSnapshotSchema.parse({
+    groupId: formData.get("groupId"),
+    entries: rawEntries ? JSON.parse(String(rawEntries)) : []
+  });
+  const { supabase, user } = await requireUser();
+  await assertGroupMember(supabase, parsed.groupId, user.id);
+  const { tournamentId } = await getGroupTournament(supabase, parsed.groupId);
+  await assertKnockoutUnlocked(supabase, parsed.groupId);
+
+  const sourceMatchIds = [...new Set(parsed.entries.map((entry) => entry.sourceMatchId))];
+  const predictedTeamIds = [...new Set(parsed.entries.map((entry) => entry.predictedTeamId))];
+
+  if (sourceMatchIds.length) {
+    const { data: matches, error: matchesError } = await supabase
+      .from("matches")
+      .select("id,tournament_id,stage_type,round_key")
+      .in("id", sourceMatchIds);
+
+    if (matchesError) throw matchesError;
+    const matchById = new Map((matches ?? []).map((match) => [match.id, match]));
+    for (const entry of parsed.entries) {
+      const match = matchById.get(entry.sourceMatchId);
+      if (!match) throw new Error("Knockout prediction must be tied to a fixture.");
+      if (match.tournament_id !== tournamentId) throw new Error("Match does not belong to this group tournament.");
+      if (match.stage_type !== "knockout") throw new Error("Winner pick must be for a knockout fixture.");
+      if (match.round_key !== entry.roundKey) {
+        throw new Error(`Winner pick round mismatch: ${entry.roundKey} pick points to ${match.round_key} fixture.`);
+      }
+    }
+  }
+
+  if (predictedTeamIds.length) {
+    const { data: teams, error: teamsError } = await supabase
+      .from("teams")
+      .select("id")
+      .eq("tournament_id", tournamentId)
+      .in("id", predictedTeamIds);
+
+    if (teamsError) throw teamsError;
+    const validTeamIds = new Set((teams ?? []).map((team) => team.id));
+    if (!predictedTeamIds.every((teamId) => validTeamIds.has(teamId))) {
+      throw new Error("Winner pick must be a tournament team.");
+    }
+  }
+
+  const service = createServiceClient();
+  const { error: deleteError } = await service
+    .from("knockout_prediction_entries")
+    .delete()
+    .eq("group_id", parsed.groupId)
+    .eq("user_id", user.id);
+
+  if (deleteError) throw deleteError;
+
+  if (parsed.entries.length) {
+    const { error: insertError } = await service.from("knockout_prediction_entries").insert(
+      parsed.entries.map((entry) => ({
+        group_id: parsed.groupId,
+        user_id: user.id,
+        round_key: entry.roundKey as RoundKey,
+        slot_index: entry.slotIndex,
+        source_match_id: entry.sourceMatchId,
+        predicted_team_id: entry.predictedTeamId
+      }))
+    );
+
+    if (insertError) throw insertError;
+  }
+
+  revalidatePath(`/groups/${parsed.groupId}/predictions`);
+  revalidatePath(`/groups/${parsed.groupId}/standings`);
 }
 
 export async function copyPredictionsFromGroup(formData: FormData) {

@@ -8,6 +8,7 @@ const SOURCE_URL =
   "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json";
 
 type OpenFootballMatch = {
+  num?: number;
   round?: string;
   date?: string;
   time?: string;
@@ -44,12 +45,12 @@ function statusFor(match: OpenFootballMatch): NormalizedMatch["status"] {
   return "scheduled";
 }
 
-function isPlaceholderTeam(name?: string) {
+export function isPlaceholderTeam(name?: string) {
   if (!name) return true;
-  return /^(?:\d+[A-Z](?:\/[A-Z])?|[WL]\d+)$/i.test(name);
+  return /^(?:\d+[A-Z](?:\/[A-Z])*|[WL]\d+)$/i.test(name.trim());
 }
 
-function classifyRound(match: OpenFootballMatch): Pick<NormalizedMatch, "stageType" | "roundKey" | "roundOrder"> {
+export function classifyRound(match: OpenFootballMatch): Pick<NormalizedMatch, "stageType" | "roundKey" | "roundOrder"> {
   const label = `${match.round ?? ""} ${match.group ?? ""}`.toLowerCase();
 
   if (match.group || label.includes("group")) {
@@ -57,9 +58,6 @@ function classifyRound(match: OpenFootballMatch): Pick<NormalizedMatch, "stageTy
   }
   if (label.includes("third")) {
     return { stageType: "knockout", roundKey: "third_place", roundOrder: 5 };
-  }
-  if (label.includes("final")) {
-    return { stageType: "knockout", roundKey: "final", roundOrder: 6 };
   }
   if (label.includes("semi")) {
     return { stageType: "knockout", roundKey: "semi_final", roundOrder: 4 };
@@ -73,11 +71,18 @@ function classifyRound(match: OpenFootballMatch): Pick<NormalizedMatch, "stageTy
   if (label.includes("32")) {
     return { stageType: "knockout", roundKey: "round_of_32", roundOrder: 1 };
   }
+  if (label.trim() === "final") {
+    return { stageType: "knockout", roundKey: "final", roundOrder: 6 };
+  }
 
   return { stageType: "knockout", roundKey: "round_of_32", roundOrder: 1 };
 }
 
-function externalIdFor(match: OpenFootballMatch, index: number) {
+export function externalIdFor(match: OpenFootballMatch, index: number) {
+  if (!match.group && match.num) {
+    return `world-cup-2026-match-${match.num}`;
+  }
+
   return [
     match.date ?? "unknown-date",
     match.round ?? "unknown-round",

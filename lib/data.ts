@@ -135,28 +135,40 @@ export const getPredictionPageData = cache(async function getPredictionPageData(
 
 export const getStandingsPageData = cache(async function getStandingsPageData(groupId: string) {
   const { supabase, group } = await getGroupContext(groupId);
-  const [{ data: matches, error: matchesError }, { data: teams, error: teamsError }, { data: predictions, error: predictionsError }] =
+  const [
+    { data: matches, error: matchesError },
+    { data: teams, error: teamsError },
+    { data: predictions, error: predictionsError },
+    { data: knockoutPredictions, error: knockoutPredictionsError }
+  ] =
     await Promise.all([
       supabase
         .from("matches")
-        .select("group_name,status,home_team_id,away_team_id,home_score,away_score,updated_at")
+        .select("id,external_id,stage,group_name,stage_type,round_key,round_order,home_team_id,away_team_id,home_team_name,away_team_name,kickoff_time,status,home_score,away_score,updated_at")
         .eq("tournament_id", group.tournament_id)
-        .eq("stage_type", "group"),
+        .order("round_order", { ascending: true })
+        .order("kickoff_time", { ascending: true, nullsFirst: false }),
       supabase.from("teams").select("id,name,flag_emoji").eq("tournament_id", group.tournament_id),
       supabase
         .from("group_table_predictions")
         .select("user_id,group_name,ranked_team_ids,third_place_advances,points")
+        .eq("group_id", groupId),
+      supabase
+        .from("knockout_prediction_entries")
+        .select("user_id,round_key,slot_index,source_match_id,predicted_team_id,points")
         .eq("group_id", groupId)
     ]);
 
   if (matchesError) throw matchesError;
   if (teamsError) throw teamsError;
   if (predictionsError) throw predictionsError;
+  if (knockoutPredictionsError) throw knockoutPredictionsError;
 
   return {
     matches: matches ?? [],
     teams: teams ?? [],
-    predictions: predictions ?? []
+    predictions: predictions ?? [],
+    knockoutPredictions: knockoutPredictions ?? []
   };
 });
 

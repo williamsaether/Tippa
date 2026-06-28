@@ -1,7 +1,7 @@
-import { Trophy } from "lucide-react";
-import { saveKnockoutPrediction, saveMatchPrediction } from "@/app/actions/predictions";
+import { saveMatchPrediction } from "@/app/actions/predictions";
 import { ClientDateTime } from "@/components/client-date-time";
 import { GroupTablePredictions } from "@/components/group-table-predictions";
+import { KnockoutBracketPredictions } from "@/components/knockout-bracket-predictions";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getGroupContext, getPredictionPageData } from "@/lib/data";
+import { buildKnockoutBracket } from "@/lib/knockout-bracket";
 import { isGroupStageOpenForUser } from "@/lib/prediction-locks";
 import { flagForTeam } from "@/lib/team-flags";
 import { buildDefaultTableOrders } from "@/lib/table-prediction-order";
 
 type MatchRow = {
   id: string;
+  external_id: string | null;
   stage: string;
   group_name: string | null;
   stage_type: "group" | "knockout";
@@ -92,11 +94,11 @@ export default async function PredictionsPage({
   const matchPredictionByMatch = new Map(
     (matchPredictions ?? []).map((prediction) => [prediction.match_id, prediction])
   );
-  const knockoutPredictionByMatch = new Map(
-    (knockoutPredictions ?? [])
-      .filter((prediction) => prediction.source_match_id)
-      .map((prediction) => [prediction.source_match_id, prediction])
-  );
+  const knockoutBracket = buildKnockoutBracket({
+    knockoutMatches,
+    groupMatches,
+    includeThirdPlace: settings.include_third_place
+  });
   const defaultOrders = buildDefaultTableOrders(groupMatches);
   const tableGroups = [...defaultOrders.entries()]
     .sort(([leftGroupName], [rightGroupName]) => groupNameSorter.compare(leftGroupName, rightGroupName))
@@ -198,12 +200,11 @@ export default async function PredictionsPage({
                 phase="knockout"
               />
             ) : (
-              <KnockoutMode
+              <KnockoutBracketPredictions
                 groupId={groupId}
                 locked={knockoutLocked}
-                includeThirdPlace={settings.include_third_place}
-                matches={knockoutMatches}
-                predictionByMatch={knockoutPredictionByMatch}
+                rounds={knockoutBracket}
+                predictions={knockoutPredictions ?? []}
               />
             )
           ) : (
@@ -299,66 +300,6 @@ function ExactScoreMode({
               <span className="font-black">-</span>
               <Input name="awayScore" type="number" min="0" className="w-16 text-center" defaultValue={prediction?.away_score ?? ""} disabled={locked} />
               <Button type="submit" disabled={locked}>Save</Button>
-            </div>
-          </form>
-        );
-      })}
-    </div>
-  );
-}
-
-function KnockoutMode({
-  groupId,
-  locked,
-  includeThirdPlace,
-  matches,
-  predictionByMatch
-}: {
-  groupId: string;
-  locked: boolean;
-  includeThirdPlace: boolean;
-  matches: MatchRow[];
-  predictionByMatch: Map<string, { predicted_team_id: string; points: number }>;
-}) {
-  const visibleMatches = includeThirdPlace
-    ? matches
-    : matches.filter((match) => match.round_key !== "third_place");
-
-  return (
-    <div className="space-y-3">
-      {visibleMatches.map((match, index) => {
-        const prediction = predictionByMatch.get(match.id);
-        return (
-          <form key={match.id} action={saveKnockoutPrediction} className="grid gap-3 rounded-3xl bg-muted p-4 md:grid-cols-[1fr_auto]">
-            <input type="hidden" name="groupId" value={groupId} />
-            <input type="hidden" name="roundKey" value={match.round_key} />
-            <input type="hidden" name="slotIndex" value={index} />
-            <input type="hidden" name="sourceMatchId" value={match.id} />
-            <div>
-              <p className="font-black">
-                {match.home_team_name} vs {match.away_team_name}
-              </p>
-              <p className="text-xs text-muted-foreground">{match.stage}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {prediction ? <Badge variant="outline">{prediction.points} pts</Badge> : null}
-              <Select name="predictedTeamId" defaultValue={prediction?.predicted_team_id} disabled={locked}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Pick winner" />
-                </SelectTrigger>
-                <SelectContent>
-                  {match.home_team_id ? (
-                    <SelectItem value={match.home_team_id}>{match.home_team_name}</SelectItem>
-                  ) : null}
-                  {match.away_team_id ? (
-                    <SelectItem value={match.away_team_id}>{match.away_team_name}</SelectItem>
-                  ) : null}
-                </SelectContent>
-              </Select>
-              <Button type="submit" disabled={locked}>
-                <Trophy className="h-4 w-4" />
-                Save
-              </Button>
             </div>
           </form>
         );

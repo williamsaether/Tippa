@@ -1,7 +1,14 @@
 import { ArrowRight } from "lucide-react";
+import { KnockoutBracketView } from "@/components/knockout-bracket-view";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getGroupContext, getStandingsPageData } from "@/lib/data";
+import {
+  buildKnockoutBracket,
+  type KnockoutBracketMatch,
+  type KnockoutBracketRound,
+  type KnockoutPickState
+} from "@/lib/knockout-bracket";
 import { scoreSettingsFromRow } from "@/lib/scoring";
 import { calculateGroupStandings } from "@/lib/tournaments/standings";
 import { cn } from "@/lib/utils";
@@ -16,27 +23,67 @@ type TablePrediction = {
   points: number;
 };
 
+type KnockoutPrediction = {
+  user_id: string;
+  round_key: string;
+  slot_index: number;
+  source_match_id: string | null;
+  predicted_team_id: string;
+  points: number;
+};
+
+type MatchRow = {
+  id: string;
+  external_id: string | null;
+  stage: string;
+  group_name: string | null;
+  stage_type: "group" | "knockout";
+  round_key: string;
+  round_order: number;
+  home_team_id: string | null;
+  away_team_id: string | null;
+  home_team_name: string;
+  away_team_name: string;
+  kickoff_time: string | null;
+  status: "scheduled" | "live" | "finished" | "postponed" | "cancelled";
+  home_score: number | null;
+  away_score: number | null;
+};
+
 export default async function StandingsPage({ params }: { params: Promise<{ groupId: string }> }) {
   const { groupId } = await params;
   const { group, user, members } = await getGroupContext(groupId);
-  const { matches, teams, predictions } = await getStandingsPageData(groupId);
+  const { matches, teams, predictions, knockoutPredictions } = await getStandingsPageData(groupId);
   const tournament = Array.isArray(group.tournaments) ? group.tournaments[0] : group.tournaments;
   const settingsRow = Array.isArray(group.group_prediction_settings)
     ? group.group_prediction_settings[0]
     : group.group_prediction_settings;
   const settings = scoreSettingsFromRow(settingsRow as never);
   const directAdvancers = tournament?.group_direct_advancers ?? 2;
+  const pageMatches = matches as MatchRow[];
+  const groupMatches = pageMatches.filter((match) => match.stage_type === "group");
+  const knockoutMatches = pageMatches.filter((match) => match.stage_type === "knockout");
+  const includeThirdPlace = Boolean(settingsRow?.include_third_place);
+  const knockoutBracket = buildKnockoutBracket({ knockoutMatches, groupMatches, includeThirdPlace });
   const teamById = new Map(teams.map((team) => [team.id, team]));
   const typedPredictions = predictions as TablePrediction[];
+  const typedKnockoutPredictions = knockoutPredictions as KnockoutPrediction[];
   const memberNameByUserId = new Map(
     members.map((member) => {
       const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
       return [member.user_id, member.display_name || profile?.display_name || "Pool member"];
     })
   );
-  const matchesByGroup = new Map<string, typeof matches>();
+  const membersInDisplayOrder = [...members].sort((left, right) => {
+    if (left.user_id === user.id) return -1;
+    if (right.user_id === user.id) return 1;
+    return (memberNameByUserId.get(left.user_id) ?? "").localeCompare(
+      memberNameByUserId.get(right.user_id) ?? ""
+    );
+  });
+  const matchesByGroup = new Map<string, MatchRow[]>();
 
-  for (const match of matches) {
+  for (const match of groupMatches) {
     if (!match.group_name) continue;
     const groupMatches = matchesByGroup.get(match.group_name) ?? [];
     groupMatches.push(match);
@@ -59,76 +106,92 @@ export default async function StandingsPage({ params }: { params: Promise<{ grou
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {[...matchesByGroup.entries()]
-          .sort(([left], [right]) => groupNameSorter.compare(left, right))
-          .map(([cupGroupName, groupMatches]) => {
-            const standings = calculateGroupStandings(groupMatches, { includeTeamsWithoutResults: true });
-            const memberPredictions = typedPredictions
-              .filter((entry) => entry.group_name === cupGroupName)
-              .sort((left, right) => {
-                if (left.user_id === user.id) return -1;
-                if (right.user_id === user.id) return 1;
-                return (memberNameByUserId.get(left.user_id) ?? "").localeCompare(
-                  memberNameByUserId.get(right.user_id) ?? ""
-                );
-              });
-            const ownPrediction = memberPredictions.find((entry) => entry.user_id === user.id);
-            const otherPredictions = memberPredictions.filter((entry) => entry.user_id !== user.id);
+      <details open className="rounded-3xl border bg-card text-card-foreground shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 font-black [&::-webkit-details-marker]:hidden">
+          <span>Group stage standings</span>
+          <span className="text-xs font-bold text-muted-foreground">
+            {[...matchesByGroup.keys()].length} groups
+          </span>
+        </summary>
+        <div className="grid gap-4 p-5 pt-0 lg:grid-cols-2">
+          {[...matchesByGroup.entries()]
+            .sort(([left], [right]) => groupNameSorter.compare(left, right))
+            .map(([cupGroupName, groupMatches]) => {
+              const standings = calculateGroupStandings(groupMatches, { includeTeamsWithoutResults: true });
+              const memberPredictions = typedPredictions
+                .filter((entry) => entry.group_name === cupGroupName)
+                .sort((left, right) => {
+                  if (left.user_id === user.id) return -1;
+                  if (right.user_id === user.id) return 1;
+                  return (memberNameByUserId.get(left.user_id) ?? "").localeCompare(
+                    memberNameByUserId.get(right.user_id) ?? ""
+                  );
+                });
+              const ownPrediction = memberPredictions.find((entry) => entry.user_id === user.id);
+              const otherPredictions = memberPredictions.filter((entry) => entry.user_id !== user.id);
 
-            return (
-              <Card key={cupGroupName}>
-                <CardHeader className="p-4 pb-3">
-                  <CardTitle>{cupGroupName}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 p-4 pt-0">
-                  <StandingsTable
-                    rows={standings.map((standing, index) => ({
-                      teamId: standing.teamId,
-                      rank: index + 1,
-                      played: standing.played,
-                      points: standing.points,
-                      advances: index < directAdvancers,
-                      predictedTeamId: ownPrediction?.ranked_team_ids[index] ?? null,
-                      predictedStatus:
-                        index === directAdvancers && ownPrediction?.third_place_advances
-                            ? "third"
-                            : "none"
-                    }))}
-                    teamById={teamById}
-                  />
-                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <span>Your prediction: {ownPrediction?.points ?? 0} pts</span>
-                    <span>Top {directAdvancers} advance</span>
-                  </div>
-                  <details className="rounded-2xl border bg-muted/20">
-                    <summary className="cursor-pointer px-3 py-2 text-sm font-black">
-                      Other predictions ({otherPredictions.length})
-                    </summary>
-                    <div className="grid gap-2 border-t p-3 sm:grid-cols-2">
-                      {otherPredictions.map((entry) => (
-                        <MemberPredictionTable
-                          key={entry.user_id}
-                          title={memberNameByUserId.get(entry.user_id) ?? "Pool member"}
-                          points={entry.points}
-                          teamIds={entry.ranked_team_ids}
-                          teamById={teamById}
-                          directAdvancers={directAdvancers}
-                          thirdPlaceAdvances={entry.third_place_advances}
-                        />
-                      ))}
-                      {otherPredictions.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          Other members become visible after predictions lock.
-                        </p>
-                      ) : null}
+              return (
+                <Card key={cupGroupName}>
+                  <CardHeader className="p-4 pb-3">
+                    <CardTitle>{cupGroupName}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 p-4 pt-0">
+                    <StandingsTable
+                      rows={standings.map((standing, index) => ({
+                        teamId: standing.teamId,
+                        rank: index + 1,
+                        played: standing.played,
+                        points: standing.points,
+                        advances: index < directAdvancers,
+                        predictedTeamId: ownPrediction?.ranked_team_ids[index] ?? null,
+                        predictedStatus:
+                          index === directAdvancers && ownPrediction?.third_place_advances ? "third" : "none"
+                      }))}
+                      teamById={teamById}
+                    />
+                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>Your prediction: {ownPrediction?.points ?? 0} pts</span>
+                      <span>Top {directAdvancers} advance</span>
                     </div>
-                  </details>
-                </CardContent>
-              </Card>
-            );
-          })}
-      </div>
+                    <details className="rounded-2xl border bg-muted/20">
+                      <summary className="cursor-pointer px-3 py-2 text-sm font-black">
+                        Other predictions ({otherPredictions.length})
+                      </summary>
+                      <div className="grid gap-2 border-t p-3 sm:grid-cols-2">
+                        {otherPredictions.map((entry) => (
+                          <MemberPredictionTable
+                            key={entry.user_id}
+                            title={memberNameByUserId.get(entry.user_id) ?? "Pool member"}
+                            points={entry.points}
+                            teamIds={entry.ranked_team_ids}
+                            teamById={teamById}
+                            directAdvancers={directAdvancers}
+                            thirdPlaceAdvances={entry.third_place_advances}
+                          />
+                        ))}
+                        {otherPredictions.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Other members become visible after predictions lock.
+                          </p>
+                        ) : null}
+                      </div>
+                    </details>
+                  </CardContent>
+                </Card>
+              );
+            })}
+        </div>
+      </details>
+
+      <KnockoutPredictions
+        rounds={knockoutBracket}
+        predictions={typedKnockoutPredictions}
+        members={membersInDisplayOrder.map((member) => ({
+          userId: member.user_id,
+          name: member.user_id === user.id ? "You" : memberNameByUserId.get(member.user_id) ?? "Pool member"
+        }))}
+        teamById={teamById}
+      />
     </div>
   );
 }
@@ -238,6 +301,134 @@ function MemberPredictionTable({
       })}
     </section>
   );
+}
+
+function KnockoutPredictions({
+  rounds,
+  predictions,
+  members,
+  teamById
+}: {
+  rounds: KnockoutBracketRound[];
+  predictions: KnockoutPrediction[];
+  members: { userId: string; name: string }[];
+  teamById: Map<string, { id: string; name: string; flag_emoji: string | null }>;
+}) {
+  const predictionsByUserId = new Map<string, KnockoutPrediction[]>();
+  for (const prediction of predictions) {
+    predictionsByUserId.set(prediction.user_id, [
+      ...(predictionsByUserId.get(prediction.user_id) ?? []),
+      prediction
+    ]);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Knockout predictions</CardTitle>
+        <CardDescription>Your bracket is shown first. Other members are listed underneath.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {members.map((member, index) => {
+          const memberPredictions = predictionsByUserId.get(member.userId) ?? [];
+          return (
+            <details
+              key={member.userId}
+              open={index === 0}
+              className="overflow-hidden rounded-2xl border bg-background"
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 font-black [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0 truncate">{member.name}</span>
+                <Badge variant="outline" className="shrink-0">
+                  {sumPoints(memberPredictions)} pts
+                </Badge>
+              </summary>
+              <div className="border-t p-3">
+                {memberPredictions.length ? (
+                  <MemberKnockoutBracket
+                    rounds={rounds}
+                    predictions={memberPredictions}
+                    teamById={teamById}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">No knockout predictions visible yet.</p>
+                )}
+              </div>
+            </details>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MemberKnockoutBracket({
+  rounds,
+  predictions,
+  teamById
+}: {
+  rounds: KnockoutBracketRound[];
+  predictions: KnockoutPrediction[];
+  teamById: Map<string, { id: string; name: string; flag_emoji: string | null }>;
+}) {
+  const { picks, pointsByMatch } = memberKnockoutState(rounds, predictions, teamById);
+
+  return (
+    <KnockoutBracketView
+      rounds={rounds}
+      picks={picks}
+      pointsByMatch={pointsByMatch}
+      markLosers
+      emptyPickLabel="No pick"
+    />
+  );
+}
+
+function predictionForMatch(match: KnockoutBracketMatch, predictions: KnockoutPrediction[]) {
+  const bySourceMatch = new Map(
+    predictions
+      .filter((prediction) => prediction.source_match_id)
+      .map((prediction) => [prediction.source_match_id as string, prediction])
+  );
+  const byRoundSlot = new Map(
+    predictions.map((prediction) => [`${prediction.round_key}:${prediction.slot_index}`, prediction])
+  );
+
+  return (
+    bySourceMatch.get(match.sourceMatchId) ??
+    byRoundSlot.get(`${match.roundKey}:${match.slotIndex}`) ??
+    null
+  );
+}
+
+function memberKnockoutState(
+  rounds: KnockoutBracketRound[],
+  predictions: KnockoutPrediction[],
+  teamById: Map<string, { id: string; name: string; flag_emoji: string | null }>
+) {
+  const picks: KnockoutPickState = {};
+  const pointsByMatch: Record<number, number> = {};
+
+  for (const round of rounds) {
+    for (const match of round.matches) {
+      const prediction = predictionForMatch(match, predictions);
+      if (!prediction) continue;
+      const team = teamById.get(prediction.predicted_team_id);
+      if (!team) continue;
+      picks[match.matchNumber] = {
+        id: team.id,
+        name: team.name,
+        flag: team.flag_emoji ?? "⚑"
+      };
+      pointsByMatch[match.matchNumber] = prediction.points ?? 0;
+    }
+  }
+
+  return { picks, pointsByMatch };
+}
+
+function sumPoints(predictions: KnockoutPrediction[]) {
+  return predictions.reduce((total, prediction) => total + (prediction.points ?? 0), 0);
 }
 
 function ScoreRule({ label, value }: { label: string; value: number }) {
