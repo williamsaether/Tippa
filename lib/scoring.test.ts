@@ -10,16 +10,16 @@ import {
 const finished = { status: "finished" as const };
 
 describe("group table scoring", () => {
-  it("scores exact full table with advancing and winner bonuses", () => {
+  it("scores exact positions only by default", () => {
     expect(
       calculateGroupTablePoints(["a", "b", "c", "d"], ["a", "b", "c", "d"], 2)
-    ).toBe(18);
+    ).toBe(4);
   });
 
-  it("scores correct advancing teams in wrong order", () => {
+  it("does not award default points for correct advancing teams in wrong order", () => {
     expect(
       calculateGroupTablePoints(["b", "a", "c", "d"], ["a", "b", "c", "d"], 2)
-    ).toBe(10);
+    ).toBe(2);
   });
 
   it("scores lower when qualifiers are wrong", () => {
@@ -34,16 +34,16 @@ describe("group table scoring", () => {
         actualAdvancingTeamIds: ["a", "b", "c"],
         predictedThirdPlaceAdvances: true
       })
-    ).toBe(18);
+    ).toBe(4);
   });
 
-  it("penalizes missing an advancing third-place team", () => {
+  it("does not add default status points for third-place advancement", () => {
     expect(
       calculateGroupTablePoints(["a", "b", "c", "d"], ["a", "b", "c", "d"], {
         actualAdvancingTeamIds: ["a", "b", "c"],
         predictedThirdPlaceAdvances: false
       })
-    ).toBe(17);
+    ).toBe(4);
   });
 });
 
@@ -82,15 +82,15 @@ describe("match prediction scoring", () => {
 
 describe("knockout scoring", () => {
   it("uses balanced round weights by default", () => {
-    expect(knockoutPointsForRound("round_of_32")).toBe(2);
-    expect(knockoutPointsForRound("round_of_16")).toBe(3);
-    expect(knockoutPointsForRound("quarter_final")).toBe(5);
+    expect(knockoutPointsForRound("round_of_32")).toBe(1);
+    expect(knockoutPointsForRound("round_of_16")).toBe(2);
+    expect(knockoutPointsForRound("quarter_final")).toBe(4);
     expect(knockoutPointsForRound("semi_final")).toBe(8);
-    expect(knockoutPointsForRound("final")).toBe(13);
-    expect(knockoutPointsForRound("third_place")).toBe(3);
+    expect(knockoutPointsForRound("final")).toBe(16);
+    expect(knockoutPointsForRound("third_place")).toBe(4);
   });
 
   it("supports high-stakes champion weighting", () => {
-    expect(knockoutPointsForRound("final", scoringPresets.high_stakes)).toBe(20);
+    expect(knockoutPointsForRound("final", scoringPresets.high_stakes)).toBe(32);
   });
 });

@@ -89,6 +89,11 @@ export default async function StandingsPage({ params }: { params: Promise<{ grou
     groupMatches.push(match);
     matchesByGroup.set(match.group_name, groupMatches);
   }
+  const visibleScoreRules = [
+    { label: "Exact position", value: settings.tableExactPositionPoints },
+    { label: "Correct advancement status", value: settings.tableAdvancingStatusPoints },
+    { label: "Correct group winner bonus", value: settings.tableGroupWinnerBonus }
+  ].filter((rule) => rule.value > 0);
 
   return (
     <div className="space-y-4">
@@ -100,9 +105,9 @@ export default async function StandingsPage({ params }: { params: Promise<{ grou
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm sm:grid-cols-3">
-          <ScoreRule label="Exact position" value={settings.tableExactPositionPoints} />
-          <ScoreRule label="Correct advancement status" value={settings.tableAdvancingStatusPoints} />
-          <ScoreRule label="Correct group winner bonus" value={settings.tableGroupWinnerBonus} />
+          {visibleScoreRules.map((rule) => (
+            <ScoreRule key={rule.label} label={rule.label} value={rule.value} />
+          ))}
         </CardContent>
       </Card>
 

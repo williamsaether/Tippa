@@ -11,7 +11,8 @@
     "test": "vitest run",
     "sync:tournament": "tsx scripts/sync-tournament.ts",
     "backfill:table-predictions": "tsx scripts/backfill-table-predictions.ts",
-    "repair:worldcup-knockout": "node --env-file=.env.production --import tsx scripts/repair-worldcup-knockout-matches.ts"
+    "repair:worldcup-knockout": "node --env-file=.env.production --import tsx scripts/repair-worldcup-knockout-matches.ts",
+    "rebalance:scoring": "node --env-file=.env.production --import tsx scripts/rebalance-scoring-settings.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

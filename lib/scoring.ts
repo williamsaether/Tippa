@@ -30,9 +30,9 @@ export type ScoreSettings = {
 
 export const scoringPresets: Record<Exclude<ScoringPreset, "custom">, ScoreSettings> = {
   simple: {
-    tableExactPositionPoints: 2,
-    tableAdvancingStatusPoints: 1,
-    tableGroupWinnerBonus: 1,
+    tableExactPositionPoints: 1,
+    tableAdvancingStatusPoints: 0,
+    tableGroupWinnerBonus: 0,
     matchOutcomePoints: 1,
     exactScorePoints: 3,
     correctGoalDifferencePoints: 2,
@@ -45,34 +45,34 @@ export const scoringPresets: Record<Exclude<ScoringPreset, "custom">, ScoreSetti
     knockoutThirdPlacePoints: 2
   },
   balanced: {
-    tableExactPositionPoints: 3,
-    tableAdvancingStatusPoints: 1,
-    tableGroupWinnerBonus: 2,
+    tableExactPositionPoints: 1,
+    tableAdvancingStatusPoints: 0,
+    tableGroupWinnerBonus: 0,
     matchOutcomePoints: 2,
     exactScorePoints: 4,
     correctGoalDifferencePoints: 3,
     correctOutcomePoints: 2,
-    knockoutRoundOf32Points: 2,
-    knockoutRoundOf16Points: 3,
-    knockoutQuarterFinalPoints: 5,
+    knockoutRoundOf32Points: 1,
+    knockoutRoundOf16Points: 2,
+    knockoutQuarterFinalPoints: 4,
     knockoutSemiFinalPoints: 8,
-    knockoutChampionPoints: 13,
-    knockoutThirdPlacePoints: 3
+    knockoutChampionPoints: 16,
+    knockoutThirdPlacePoints: 4
   },
   high_stakes: {
-    tableExactPositionPoints: 3,
-    tableAdvancingStatusPoints: 1,
-    tableGroupWinnerBonus: 2,
+    tableExactPositionPoints: 2,
+    tableAdvancingStatusPoints: 0,
+    tableGroupWinnerBonus: 0,
     matchOutcomePoints: 2,
     exactScorePoints: 5,
     correctGoalDifferencePoints: 3,
     correctOutcomePoints: 2,
     knockoutRoundOf32Points: 2,
     knockoutRoundOf16Points: 4,
-    knockoutQuarterFinalPoints: 7,
-    knockoutSemiFinalPoints: 11,
-    knockoutChampionPoints: 20,
-    knockoutThirdPlacePoints: 4
+    knockoutQuarterFinalPoints: 8,
+    knockoutSemiFinalPoints: 16,
+    knockoutChampionPoints: 32,
+    knockoutThirdPlacePoints: 8
   }
 };
 
