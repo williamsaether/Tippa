@@ -16,6 +16,8 @@ type OpenFootballMatch = {
   team2?: string;
   group?: string;
   score?: {
+    p?: [number, number];
+    et?: [number, number];
     ft?: [number, number];
   };
 };
@@ -41,8 +43,17 @@ function normalizeKickoff(date?: string, time?: string) {
 }
 
 function statusFor(match: OpenFootballMatch): NormalizedMatch["status"] {
-  if (match.score?.ft) return "finished";
+  if (match.score?.p || match.score?.et || match.score?.ft) return "finished";
   return "scheduled";
+}
+
+export function scoreFor(match: OpenFootballMatch): [number | null, number | null] {
+  const round = classifyRound(match);
+  if (round.stageType === "knockout") {
+    return match.score?.p ?? match.score?.et ?? match.score?.ft ?? [null, null];
+  }
+
+  return match.score?.ft ?? [null, null];
 }
 
 export function isPlaceholderTeam(name?: string) {
@@ -110,7 +121,7 @@ export const openFootballWorldCup2026Adapter: TournamentAdapter = {
 
     const source = (await response.json()) as OpenFootballTournament;
     const matches = source.matches.map((match, index): NormalizedMatch => {
-      const score = match.score?.ft ?? [null, null];
+      const score = scoreFor(match);
       const round = classifyRound(match);
       return {
         externalId: externalIdFor(match, index),

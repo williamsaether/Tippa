@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifyRound,
   externalIdFor,
-  isPlaceholderTeam
+  isPlaceholderTeam,
+  scoreFor
 } from "./openfootball-worldcup-2026";
 
 describe("openFootballWorldCup2026Adapter helpers", () => {
@@ -39,5 +40,30 @@ describe("openFootballWorldCup2026Adapter helpers", () => {
     expect(isPlaceholderTeam("W89")).toBe(true);
     expect(isPlaceholderTeam("L101")).toBe(true);
     expect(isPlaceholderTeam("Germany")).toBe(false);
+  });
+
+  it("uses decisive knockout scores for extra time and penalties", () => {
+    expect(
+      scoreFor({
+        round: "Round of 32",
+        score: { ft: [1, 1], et: [3, 2] }
+      })
+    ).toEqual([3, 2]);
+
+    expect(
+      scoreFor({
+        round: "Round of 32",
+        score: { ft: [1, 1], et: [1, 1], p: [2, 4] }
+      })
+    ).toEqual([2, 4]);
+  });
+
+  it("keeps full-time scores for group matches", () => {
+    expect(
+      scoreFor({
+        group: "Group A",
+        score: { ft: [1, 1], et: [3, 2], p: [4, 3] }
+      })
+    ).toEqual([1, 1]);
   });
 });
